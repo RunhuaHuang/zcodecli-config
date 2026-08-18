@@ -1,0 +1,11 @@
+# Local ZCode credentials and user-specific configuration
+.zcode/
+config.json
+*.key
+*.pem
+*.p12
+*.env
+.env.*
+
+# macOS
+.DS_Store
