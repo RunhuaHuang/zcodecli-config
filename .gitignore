@@ -1,6 +1,7 @@
 # Local ZCode credentials and user-specific configuration
 .zcode/
 config.json
+*.fragment.json
 *.key
 *.pem
 *.p12
