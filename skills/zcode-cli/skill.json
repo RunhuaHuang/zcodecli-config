@@ -1,0 +1,6 @@
+{
+  "name": "zcode-cli",
+  "version": "0.3.0",
+  "node": ">=20",
+  "verifiedCliVersions": ["0.16.5"]
+}

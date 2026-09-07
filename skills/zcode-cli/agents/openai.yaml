@@ -1,0 +1,4 @@
+interface:
+  display_name: "ZCode CLI"
+  short_description: "Install, diagnose and run ZCode across macOS and Windows"
+  default_prompt: "Use $zcode-cli to inspect my environment and run the requested task with my configured model."

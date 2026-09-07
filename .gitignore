@@ -2,6 +2,11 @@
 .zcode/
 config.json
 *.fragment.json
+*.backup-*
+*.runner.lock
+*.tmp-*
+.install.json
+node_modules/
 *.key
 *.pem
 *.p12

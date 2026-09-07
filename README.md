@@ -1,51 +1,78 @@
 # zcodecli-config
 
-一个供 Agent 使用的 macOS/Windows ZCode CLI 配置与调用包。它帮助 Agent 从已安装的 ZCode 桌面版中脱敏盘点渠道与模型、在获得用户明确授权和 API Key 后配置 CLI，并通过可复用脚本执行任务。
+为 Agent 提供 macOS / Windows 共用的 ZCode CLI 安装、诊断、配置迁移和任务运行工具。
+当前版本 0.3.0：一个自包含 skill、一套原生 Node 实现，不依赖 jq 或 Git Bash。
 
-桌面版与 CLI 使用独立的 provider 命名空间。例如桌面版的
-`builtin:bigmodel-coding-plan/GLM-5.3-Flash` 在 CLI 配置中应映射为
-`bigmodel/GLM-5.3-Flash`；不要把桌面端的 `builtin:` provider ID 直接写入 CLI 的
-`model.main`。
+## 安装与自适应诊断
 
-## 给 Agent 的使用方式
+在仓库目录中运行，macOS、PowerShell、CMD 均可使用：
 
-将整个仓库提供给 Agent，并要求它先阅读：
+~~~text
+node skills/zcode-cli/scripts/install.mjs
+node skills/zcode-cli/scripts/install.mjs --apply
+~~~
 
-1. [`ZCode CLI 模型配置指南.md`](./ZCode%20CLI%20模型配置指南.md) — 配置、迁移和安全要求；
-2. [`ZCode CLI Windows 配置指南.md`](./ZCode%20CLI%20Windows%20配置指南.md) — Windows/Git Bash 的路径、shell 和临时 profile 适配；
-3. [`skills/zcode-cli/SKILL.md`](./skills/zcode-cli/SKILL.md) — macOS 配置完成后的直接调用方法；
-4. [`skills/zcode-cli-windows/SKILL.md`](./skills/zcode-cli-windows/SKILL.md) — Windows 配置完成后的直接调用方法。
+默认安装到 CODEX_HOME/skills/zcode-cli，未设置 CODEX_HOME 时使用 ~/.codex/skills/zcode-cli。
+首次命令预览；--apply 执行安装，旧 skill 及本地修改保留在 skill-backups 中。
+现有会话可能需要重新加载 skill。安装不修改模型配置或默认渠道。
 
-配置过程必须让用户自己选择迁移范围、提供用于 CLI 的 API Key，并确认默认模型。仓库不包含也不应提交任何真实密钥或 `~/.zcode/cli/config.json`。
+让 Agent 读取安装后的 SKILL.md，然后运行：
 
-## 内容
+~~~text
+node "<skill-directory>/scripts/zcode.mjs" doctor --json --probe
+~~~
 
-```text
-ZCode CLI 模型配置指南.md         配置与从桌面端迁移的流程
-ZCode CLI Windows 配置指南.md     Windows/Git Bash 配置与故障排查
-skills/
-├── zcode-cli/                    macOS skill
-│   └── scripts/run-zcode.sh      单次任务运行器；模型/effort 覆盖不改持久配置
-└── zcode-cli-windows/            Windows skill；不依赖 jq
-    ├── SKILL.md
-    └── scripts/
-        ├── run-zcode.sh           Git Bash runner；自动探测 Windows CLI
-        └── migrate-desktop-provider.mjs  脱敏迁移桌面 provider 的 Node 工具
-```
+诊断会检查原生 Node 平台、CLI 候选路径与版本、配置和认证是否齐备，并返回下一步动作。
+--cli 选择非标准安装位置；多个安装不会静默选第一个。Windows 不要求 D:\ZCode。
+--probe 使用真实 CLI 向本地模拟接口发请求，验证配置读取和 effort 参数转换，不使用真实 API Key。
+真实服务的额度、认证和模型权限由另一次经授权的 smoke 测试验证。
 
-如果需要把调用 skill 安装到 Codex，可按平台复制对应目录至 `~/.codex/skills/`。macOS 使用 `skills/zcode-cli`，Windows 使用 `skills/zcode-cli-windows`。也可让 Agent 直接使用仓库内对应的 runner。
+## 调用
 
-## 运行环境与范围
+~~~text
+node "<skill-directory>/scripts/zcode.mjs" run --cwd "<task-directory>" --mode plan --prompt "<明确的任务>"
+node "<skill-directory>/scripts/zcode.mjs" run --cwd "<task-directory>" --mode build --model "<provider/model>" --effort max --prompt "<已授权的修改>"
+node "<skill-directory>/scripts/zcode.mjs" smoke --cwd "<task-directory>" --model "<provider/model>"
+~~~
 
-- macOS 运行器面向 macOS 上已安装的 ZCode 桌面版，依赖 `node` 与 `jq`。
-- Windows 运行器必须在 Git Bash 中运行，依赖 `node` 和 `cygpath`，不依赖 `jq`；不支持 WSL 或 PowerShell。
-- 本仓库仅覆盖无交互的 CLI 调用（`--prompt`）。当前验证的桌面包不提供可用 TUI；不要依赖 TUI 或 `/mode` 等交互命令。
-- 运行器提供 `plan`、`build`、`edit`、`yolo` 四种权限模式。需要写入、命令执行或联网时，Agent 仍须取得用户对具体任务的授权。
-- 针对已验证的 ZCode CLI `0.16.5`，运行器不会使用帮助文本中实际不可用的 `--settings` 参数；单次模型/effort 覆盖通过临时 `HOME` 和临时 `0600` CLI 配置副本实现，任务结束后自动清理。
-- 仓库中的 `.gitattributes` 强制 shell 和 Node 脚本使用 LF，避免 Windows 同步后出现 `\r: command not found`。
+支持 --config、--cli 和 --timeout-ms；默认 mode 是 plan。凭据不作为命令行参数传递。
+Windows 路径可写 D:/work；Git Bash 包装和 PowerShell 包装都转交同一 Node 核心。
 
-## 安全
+## 配置与迁移
 
-- 不要把 API Key、完整 CLI 配置、Authorization 头或环境变量提交到 Git。
-- Agent 只可从桌面版读取非敏感模型元数据；用于 CLI 的 Key 必须由用户明确提供。
-- CLI 配置文件应使用 `chmod 600 ~/.zcode/cli/config.json`。
+- [统一配置指南](./ZCode%20CLI%20模型配置指南.md)
+- [Windows 指南](./ZCode%20CLI%20Windows%20配置指南.md)
+- [安装与修复流程](./skills/zcode-cli/references/setup.md)
+- [schema 和 effort 说明](./skills/zcode-cli/references/configuration.md)
+
+0.16.5 的用户配置使用 provider.<id>.options.apiKey/baseURL。
+先前提交中“只用顶层字段”的说明有误，0.3.0 已修正。
+Anthropic effort 必须使用 SDK 命名空间，例如 reasoning.providerOptionsByLevel.max.anthropic.effort；
+HTTP 的 output_config 是转换结果，不能直接当作 SDK 配置。
+bigmodel 是本仓库选择的显式迁移 ID，不是 CLI 自动别名。
+
+~~~text
+node "<skill-directory>/scripts/zcode.mjs" repair
+node "<skill-directory>/scripts/zcode.mjs" repair --apply
+~~~
+
+repair 先预览，apply 创建备份并合并；run 只规范化临时副本。
+迁移不导出密钥、不覆盖输入/已有输出；已有配置与用户明确选择优先。
+需要新凭据时在本地输入，避免粘贴到聊天。
+
+## 验证与范围
+
+~~~text
+npm test
+~~~
+
+CI 在 macOS / Windows 原生环境及 Node 20/22/24 上执行合成配置、取消清理、
+路径、安装回滚/备份和迁移保真测试，无需真实密钥。
+设置 ZCODE_TEST_CLI 为本地真实 zcode.cjs 路径可增加真实 CLI 本地请求测试。
+CI 测试通过不等于每个服务商渠道都通过，服务端是否按 effort 执行也不能仅凭 OK 证明。
+
+当前兼容适配针对 0.16.5；其他版本运行前会通过本地请求探测。
+适配在 CLI 子进程内隔离 os.homedir()，保留 HOME/USERPROFILE 给它启动的工具。
+详见[平台限制](./skills/zcode-cli/references/platforms.md)。
+
+旧 skills/zcode-cli-windows 仅保留转发入口，新安装统一使用 skills/zcode-cli。
