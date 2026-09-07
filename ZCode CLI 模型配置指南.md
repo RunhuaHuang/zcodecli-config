@@ -14,6 +14,15 @@
 
 桌面版与 CLI 的配置文件是两套独立文件。桌面版能使用某个模型，**不代表** CLI 已能调用它。
 
+桌面版和 CLI 的 provider 命名空间也不是同一套。以 BigModel 为例：
+
+| 桌面版标识 | CLI 标识 |
+| --- | --- |
+| `builtin:bigmodel-coding-plan/GLM-5.3-Flash` | `bigmodel/GLM-5.3-Flash` |
+| `builtin:bigmodel-coding-plan/glm-5.3` | `bigmodel/glm-5.3` |
+
+这里的 `builtin:bigmodel-coding-plan` 到 `bigmodel` 是显式迁移映射，不是 CLI 自动识别的别名。CLI 中的 provider ID 必须与 `provider` 对象的键完全一致。
+
 先验证 CLI 可用：
 
 ```bash
@@ -41,7 +50,7 @@ jq '
     name: .value.name,
     kind: .value.kind,
     enabled: .value.enabled,
-    baseURL: .value.options.baseURL,
+    baseURL: (.value.baseURL // .value.options.baseURL),
     models: ((.value.models // {}) | to_entries | map({
       id: .key,
       name: .value.name,
@@ -115,7 +124,7 @@ CLI 不使用桌面端的 `variants/defaultVariant` 作为 effort 选择。迁�
    node "$ZCODE_CLI" --mode plan --prompt 'Only reply with: ZCODE_CLI_OK'
    ```
 
-6. 若用户要求测试多个渠道，使用临时 settings 文件分别测试；不要反复修改全局 `model.main`。详见第 6 节的运行脚本。
+6. 若用户要求测试多个渠道，使用第 6 节的运行脚本，通过临时 `HOME` 下的 CLI 配置副本分别测试；不要反复修改全局 `model.main`。
 
 ## 3. CLI 配置的最小结构
 
@@ -130,10 +139,8 @@ CLI 至少需要一个主模型和与之对应的 provider：
     "YOUR_PROVIDER_ID": {
       "name": "Provider label",
       "kind": "anthropic",
-      "options": {
-        "apiKey": "USER_SUPPLIED_API_KEY",
-        "baseURL": "https://provider.example/api"
-      },
+      "apiKey": "USER_SUPPLIED_API_KEY",
+      "baseURL": "https://provider.example/api",
       "enabled": true,
       "source": "custom",
       "models": {
@@ -155,6 +162,8 @@ CLI 至少需要一个主模型和与之对应的 provider：
 ```
 
 `model.main` 必须精确匹配 `provider-id/model-id`。其中模型 ID 必须是同一 provider 的 `models` 对象中的键。
+
+当前 CLI 运行时需要从 provider 的顶层读取 `baseURL` 和 `apiKey`。不要只把这两个字段放在 `options` 下；那是桌面端配置中常见的形状，不能作为 CLI 配置的唯一来源。
 
 ### 协议类型
 
@@ -178,10 +187,8 @@ CLI 至少需要一个主模型和与之对应的 provider：
     "provider-a": {
       "name": "Provider A",
       "kind": "anthropic",
-      "options": {
-        "apiKey": "USER_KEY_A",
-        "baseURL": "https://provider-a.example/anthropic"
-      },
+      "apiKey": "USER_KEY_A",
+      "baseURL": "https://provider-a.example/anthropic",
       "models": {
         "model-one": {
           "limit": { "context": 200000, "output": 32000 },
@@ -192,10 +199,8 @@ CLI 至少需要一个主模型和与之对应的 provider：
     "provider-b": {
       "name": "Provider B",
       "kind": "openai-compatible",
-      "options": {
-        "apiKey": "USER_KEY_B",
-        "baseURL": "https://provider-b.example/v1"
-      },
+      "apiKey": "USER_KEY_B",
+      "baseURL": "https://provider-b.example/v1",
       "models": {
         "model-two": {
           "limit": { "context": 1000000, "output": 128000 },
@@ -223,7 +228,7 @@ CLI 至少需要一个主模型和与之对应的 provider：
 
 ### 已验证的 BigModel GLM-5.3 映射
 
-对于 BigModel 的 Anthropic 兼容 GLM-5.3，已验证可使用以下完整配置：
+对于 BigModel 的 Anthropic 兼容 `glm-5.3` 和 `GLM-5.3-Flash`，已验证 effort 映射使用以下请求参数：
 
 ```json
 "reasoning": {
@@ -233,15 +238,15 @@ CLI 至少需要一个主模型和与之对应的 provider：
   "providerOptionsByLevel": {
     "low": {
       "output_config": { "effort": "low" },
-      "thinking": { "type": "enabled", "budgetTokens": 8000 }
+      "thinking": { "type": "enabled" }
     },
     "high": {
       "output_config": { "effort": "high" },
-      "thinking": { "type": "enabled", "budgetTokens": 16000 }
+      "thinking": { "type": "enabled" }
     },
     "max": {
       "output_config": { "effort": "max" },
-      "thinking": { "type": "enabled", "budgetTokens": 32000 }
+      "thinking": { "type": "enabled" }
     }
   }
 }
@@ -279,11 +284,11 @@ CLI 至少需要一个主模型和与之对应的 provider：
 
 1. 验证目标模型与 effort 已在 CLI 配置中登记；
 2. 验证该 effort 有 `providerOptionsByLevel` 的真实请求映射；
-3. 生成仅当前进程使用、权限为 `600` 的临时 settings 文件；
-4. 通过 CLI 的 `--settings` 运行任务；
-5. 无论任务成功、失败或中断，都自动删除临时文件。
+3. 创建临时 `HOME`，并在其中生成权限为 `600` 的 CLI 配置副本；
+4. 通过该临时 `HOME` 启动 CLI；
+5. 无论任务成功、失败或中断，都自动删除临时目录。
 
-因此它不会修改持久的 `~/.zcode/cli/config.json`，也不会影响桌面版 ZCode。若所选模型没有该 effort 的请求映射，脚本会拒绝运行并提示原因，避免“看似切换成功、实际服务端未生效”。
+这是因为 ZCode CLI `0.16.5` 的帮助文本虽然列出了 `--settings`，实际参数解析器却不接受该参数。临时 `HOME` 方案兼容当前 CLI，同时不会修改持久的 `~/.zcode/cli/config.json`，也不会影响桌面版 ZCode。若所选模型没有该 effort 的请求映射，脚本会拒绝运行并提示原因，避免“看似切换成功、实际服务端未生效”。
 
 ## 7. 常见错误
 

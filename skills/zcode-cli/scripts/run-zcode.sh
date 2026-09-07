@@ -11,8 +11,8 @@ Options:
   --effort <level>                Use a supported effort for this run only
   --help                          Show this message
 
-Model and effort overrides use a temporary 0600 settings file and never modify
-the persistent ZCode CLI configuration.
+Model and effort overrides use a temporary HOME with a 0600 CLI config copy and
+never modify the persistent ZCode CLI configuration.
 EOF
 }
 
@@ -104,27 +104,29 @@ if [[ -n "$REQUESTED_EFFORT" ]]; then
     || fail "effort '$REQUESTED_EFFORT' has no verified provider request mapping for $TARGET_MODEL"
 fi
 
-RUN_SETTINGS=""
+RUN_HOME=""
 cleanup() {
-  if [[ -n "$RUN_SETTINGS" && -f "$RUN_SETTINGS" ]]; then
-    rm -f -- "$RUN_SETTINGS"
+  if [[ -n "$RUN_HOME" && -d "$RUN_HOME" ]]; then
+    rm -rf -- "$RUN_HOME"
   fi
 }
 trap cleanup EXIT
 
 if [[ -n "$REQUESTED_MODEL" || -n "$REQUESTED_EFFORT" ]]; then
   umask 077
-  RUN_SETTINGS="$(mktemp "${TMPDIR:-/tmp}/zcode-cli-settings.XXXXXX")"
+  RUN_HOME="$(mktemp -d "${TMPDIR:-/tmp}/zcode-cli-home.XXXXXX")"
+  mkdir -p "$RUN_HOME/.zcode/cli"
   jq --arg target "$TARGET_MODEL" --arg provider "$PROVIDER_ID" --arg model "$MODEL_ID" --arg effort "$REQUESTED_EFFORT" '
     .model.main = $target
     | if $effort == "" then . else .provider[$provider].models[$model].reasoning.defaultLevel = $effort end
-  ' "$CONFIG_PATH" > "$RUN_SETTINGS"
-  chmod 600 "$RUN_SETTINGS"
+  ' "$CONFIG_PATH" > "$RUN_HOME/.zcode/cli/config.json"
+  chmod 600 "$RUN_HOME/.zcode/cli/config.json"
 fi
 
 COMMAND=("$NODE_RUNTIME" "$CLI_PATH" --mode "$MODE" --cwd "$WORK_DIR")
-if [[ -n "$RUN_SETTINGS" ]]; then
-  COMMAND+=(--settings "$RUN_SETTINGS")
-fi
 COMMAND+=(--prompt "$PROMPT_TEXT")
-"${COMMAND[@]}"
+if [[ -n "$RUN_HOME" ]]; then
+  HOME="$RUN_HOME" "${COMMAND[@]}"
+else
+  "${COMMAND[@]}"
+fi
